@@ -282,6 +282,7 @@ namespace NinjaTrader.NinjaScript.Indicators.Infinity
 				drawBorder   = true;
 				drawVolume   = false;
 				drawLadder   = true;
+				drawDelta    = true;
 				upSwingColor = Brushes.LimeGreen;
 				dnSwingColor = Brushes.Red;
 				textColor    = Brushes.DimGray;
@@ -299,7 +300,7 @@ namespace NinjaTrader.NinjaScript.Indicators.Infinity
 				
 				if(ChartBars != null)
 				{
-					ZOrder = ChartBars.ZOrder - 1;
+					SetZOrder(ChartBars.ZOrder - 1);
 				}
 			}
 			else if(State == State.DataLoaded)
@@ -585,10 +586,11 @@ namespace NinjaTrader.NinjaScript.Indicators.Infinity
 			
 			try
 			{
-				dynFontSize = (drawVolume) ? getTextSize(chartScale) : ChartControl.Properties.LabelFont.Size;
+				dynFontSize = (drawVolume || drawLadder) ? getTextSize(chartScale) : ChartControl.Properties.LabelFont.Size;
 				
 				drawSwingProfile(chartControl, chartScale);
 				drawCloseLine(chartControl, chartScale);
+				drawSwingLadder(chartControl, chartScale);
 			}
 			catch(Exception exception)
 			{
@@ -653,7 +655,6 @@ namespace NinjaTrader.NinjaScript.Indicators.Infinity
 					{
 						x1 = chartControl.GetXByBarIndex(ChartBars, Profiles[i].fst);
 						x2 = chartControl.GetXByBarIndex(ChartBars, Profiles[i].lst);
-						x2 = (extend && ChartBars.ToIndex > Profiles[i].fst && ChartBars.ToIndex <= Profiles[i].lst) ? chartControl.CanvasRight : x2;
 						mw = Math.Abs(x2 - x1);
 						mh = Math.Abs(((chartScale.GetYByValue(Profiles[i].max) + chartScale.GetYByValue(Profiles[i].max + TickSize)) / 2) - ((chartScale.GetYByValue(Profiles[i].min) + chartScale.GetYByValue(Profiles[i].min - TickSize)) / 2));
 						
@@ -685,7 +686,7 @@ namespace NinjaTrader.NinjaScript.Indicators.Infinity
 							rect.Width  = (float)wd;
 							rect.Height = (float)ht;
 							
-							if(pix >= 16f)
+							if(pix >= 12f)
 							{
 								bckBrush.Opacity = 1.0f;
 								
@@ -723,14 +724,7 @@ namespace NinjaTrader.NinjaScript.Indicators.Infinity
 								vect.X = rect.X + 2f;
 								vect.Y = rect.Y;
 								
-								if(Profiles[i].dir > 0)
-								{
-									RenderTarget.DrawTextLayout(vect, tl, txtBrush);
-								}
-								else
-								{
-									RenderTarget.DrawTextLayout(vect, tl, txtBrush);
-								}
+								RenderTarget.DrawTextLayout(vect, tl, txtBrush);
 								
 								tl.Dispose();
 							}
@@ -754,6 +748,36 @@ namespace NinjaTrader.NinjaScript.Indicators.Infinity
 								RenderTarget.DrawRectangle(rect, dnsBrush);
 							}
 						}
+						
+						if(drawDelta)
+						{
+							rect.X      = (float)x1;
+							rect.Y 		= (float)chartScale.GetYByValue(Profiles[i].min - TickSize / 2);
+							rect.Width  = (float)mw;
+							rect.Height = (float)100f;
+							
+							tfDynNorm.TextAlignment = SharpDX.DirectWrite.TextAlignment.Leading;
+							
+							tl = new SharpDX.DirectWrite.TextLayout(Core.Globals.DirectWriteFactory, "Δ: " + Profiles[i].dta.ToString("N0"), tfDynNorm, rect.Width, rect.Height);
+							
+							tl.ParagraphAlignment = SharpDX.DirectWrite.ParagraphAlignment.Near;
+							
+							vect.X = rect.X + 2f;
+							vect.Y = rect.Y;
+							
+							if(Profiles[i].dta >= 0.0)
+							{
+								upsBrush.Opacity = 1.0f;
+								RenderTarget.DrawTextLayout(vect, tl, upsBrush);
+							}
+							else
+							{
+								dnsBrush.Opacity = 1.0f;
+								RenderTarget.DrawTextLayout(vect, tl, dnsBrush);
+							}
+							
+							tl.Dispose();
+						}
 					}
 					
 					#endregion
@@ -764,7 +788,6 @@ namespace NinjaTrader.NinjaScript.Indicators.Infinity
 					{
 						x1 = chartControl.GetXByBarIndex(ChartBars, Profiles[i].fst);
 						x2 = chartControl.GetXByBarIndex(ChartBars, Profiles[i].lst);
-						x2 = (extend && ChartBars.ToIndex > Profiles[i].fst && ChartBars.ToIndex <= Profiles[i].lst) ? chartControl.CanvasRight : x2;
 						wd = Math.Abs(x2 - x1);
 						mh = Math.Abs(((chartScale.GetYByValue(Profiles[i].max) + chartScale.GetYByValue(Profiles[i].max + TickSize)) / 2) - ((chartScale.GetYByValue(Profiles[i].min) + chartScale.GetYByValue(Profiles[i].min - TickSize)) / 2));
 						
@@ -836,116 +859,6 @@ namespace NinjaTrader.NinjaScript.Indicators.Infinity
 							{
 								dnsBrush.Opacity = maxOpacity;
 								RenderTarget.DrawRectangle(rect, dnsBrush);
-							}
-						}
-					}
-					
-					#endregion
-					
-					#region ladder
-					
-					if(drawLadder)
-					{
-						if(i == Profiles.Count - 1)
-						{
-							double maxVol = 0.0;
-							
-							foreach(KeyValuePair<double, RowItem> ri in Profiles[i].rowItems)
-							{
-								if(ri.Key < rngMin || ri.Key > rngMax) { continue; }
-								
-								maxVol = ri.Value.bid > maxVol ? ri.Value.bid : maxVol;
-								maxVol = ri.Value.ask > maxVol ? ri.Value.ask : maxVol;
-							}
-							
-							float maxWidth = getTextWidth(chartScale, dynFontSize, maxVol.ToString());
-							
-							x1 = chartControl.GetXByBarIndex(ChartBars, Profiles[i].lst) + chartControl.Properties.BarDistance;
-							wd = maxWidth + 12f;
-							x2 = x1 + wd;
-							
-							foreach(KeyValuePair<double, RowItem> ri in Profiles[i].rowItems)
-							{
-								if(ri.Key < rngMin || ri.Key > rngMax) { continue; }
-								
-								y1 = ((chartScale.GetYByValue(ri.Key) + chartScale.GetYByValue(ri.Key + TickSize)) / 2);
-								y2 = ((chartScale.GetYByValue(ri.Key) + chartScale.GetYByValue(ri.Key - TickSize)) / 2);
-								
-								ht = Math.Abs(y2 - y1);
-								
-								// bid
-								
-								rect.X      = (float)x1;
-								rect.Y      = (float)y1;
-								rect.Width  = (float)wd;
-								rect.Height = (float)ht;
-								
-								if(pix >= 16f)
-								{
-									bckBrush.Opacity = 1.0f;
-									
-									if(wd >= 1f)
-									{
-										RenderTarget.DrawRectangle(rect, bckBrush);
-									}
-									
-									rect.Width  -= 1f;
-									rect.Height -= 1f;
-								}
-								
-								dnsBrush.Opacity = (float)Math.Round((maxOpacity / maxVol) * ri.Value.bid, 5);
-								RenderTarget.FillRectangle(rect, dnsBrush);
-								
-								tfDynNorm.TextAlignment = SharpDX.DirectWrite.TextAlignment.Trailing;
-								tfDynBold.TextAlignment = SharpDX.DirectWrite.TextAlignment.Trailing;
-								
-								tl = (ri.Key == Profiles[i].poc) ? new SharpDX.DirectWrite.TextLayout(Core.Globals.DirectWriteFactory, ri.Value.bid.ToString(), tfDynBold, rect.Width - 6f, rect.Height) : new SharpDX.DirectWrite.TextLayout(Core.Globals.DirectWriteFactory, ri.Value.bid.ToString(), tfDynNorm, rect.Width - 6f, rect.Height);
-								
-								tl.ParagraphAlignment = SharpDX.DirectWrite.ParagraphAlignment.Center;
-								
-								vect.X = rect.X;
-								vect.Y = rect.Y;
-								
-								RenderTarget.DrawTextLayout(vect, tl, txtBrush);
-								
-								tl.Dispose();
-								
-								// ask
-								
-								rect.X      = (float)x2;
-								rect.Y      = (float)y1;
-								rect.Width  = (float)wd;
-								rect.Height = (float)ht;
-								
-								if(pix >= 16f)
-								{
-									bckBrush.Opacity = 1.0f;
-									
-									if(wd >= 1f)
-									{
-										RenderTarget.DrawRectangle(rect, bckBrush);
-									}
-									
-									rect.Width  -= 1f;
-									rect.Height -= 1f;
-								}
-								
-								upsBrush.Opacity = (float)Math.Round((maxOpacity / maxVol) * ri.Value.ask, 5);
-								RenderTarget.FillRectangle(rect, upsBrush);
-								
-								tfDynNorm.TextAlignment = SharpDX.DirectWrite.TextAlignment.Leading;
-								tfDynBold.TextAlignment = SharpDX.DirectWrite.TextAlignment.Leading;
-								
-								tl = (ri.Key == Profiles[i].poc) ? new SharpDX.DirectWrite.TextLayout(Core.Globals.DirectWriteFactory, ri.Value.ask.ToString(), tfDynBold, rect.Width + 6f, rect.Height) : new SharpDX.DirectWrite.TextLayout(Core.Globals.DirectWriteFactory, ri.Value.ask.ToString(), tfDynNorm, rect.Width + 6f, rect.Height);
-								
-								tl.ParagraphAlignment = SharpDX.DirectWrite.ParagraphAlignment.Center;
-								
-								vect.X = rect.X;
-								vect.Y = rect.Y;
-								
-								RenderTarget.DrawTextLayout(vect, tl, txtBrush);
-								
-								tl.Dispose();
 							}
 						}
 					}
@@ -1025,6 +938,227 @@ namespace NinjaTrader.NinjaScript.Indicators.Infinity
 		
 		#endregion
 		
+		#region drawSwingLadder
+		
+		// drawSwingLadder
+		//
+		private void drawSwingLadder(ChartControl chartControl, ChartScale chartScale)
+		{
+			try
+			{
+				if(!drawLadder) { return; }
+				if(Profiles.Count == 0) { return; }
+				
+				int i = Profiles.Count - 1;
+				
+				if(Profiles[i] == null) { return; }
+				if(Profiles[i].rowItems.IsEmpty) { return; }
+				if(ChartBars.ToIndex < Profiles[i].fst) { return; }
+				if(Profiles[i].lst < ChartBars.FromIndex) { return; }
+				
+				SharpDX.Direct2D1.AntialiasMode oldAntialiasMode = RenderTarget.AntialiasMode;
+				RenderTarget.AntialiasMode = SharpDX.Direct2D1.AntialiasMode.Aliased;
+				
+				ChartControlProperties chartProps = chartControl.Properties;
+				
+				SharpDX.Direct2D1.Brush bckBrush = chartProps.ChartBackground.ToDxBrush(RenderTarget);
+				SharpDX.Direct2D1.Brush upsBrush = upSwingColor.ToDxBrush(RenderTarget);
+				SharpDX.Direct2D1.Brush dnsBrush = dnSwingColor.ToDxBrush(RenderTarget);
+				SharpDX.Direct2D1.Brush txtBrush = textColor.ToDxBrush(RenderTarget);
+				
+				SharpDX.RectangleF rect = new SharpDX.RectangleF();
+				SharpDX.Vector2    vect = new SharpDX.Vector2();
+				
+				SimpleFont sfDynNorm = new SimpleFont("Consolas", dynFontSize);
+				SimpleFont sfDynBold = new SimpleFont("Consolas", dynFontSize){ Bold = true };
+				
+				TextFormat tfDynNorm = sfDynNorm.ToDirectWriteTextFormat();
+				TextFormat tfDynBold = sfDynBold.ToDirectWriteTextFormat();
+				TextLayout tl;
+				
+				double rngMin = chartScale.MinValue;
+				double rngMax = chartScale.MaxValue;
+				
+				float x1,x2,y1,y2,mw,wd,ht = 0f;
+				
+				double prc = chartScale.MaxValue;
+				float  pix = float.MaxValue;
+				
+				while(prc > chartScale.MinValue)
+				{
+					prc -= TickSize;
+					
+					y1 = ((chartScale.GetYByValue(prc) + chartScale.GetYByValue(prc + TickSize)) / 2);
+					y2 = ((chartScale.GetYByValue(prc) + chartScale.GetYByValue(prc - TickSize)) / 2);
+					pix = (Math.Abs(y1 - y2) < pix) ? Math.Abs(y1 - y2) : pix;
+				}
+				
+				#region ladder
+					
+				double maxVol = 0.0;
+				
+				foreach(KeyValuePair<double, RowItem> ri in Profiles[i].rowItems)
+				{
+					if(ri.Key < rngMin || ri.Key > rngMax) { continue; }
+					
+					maxVol = ri.Value.bid > maxVol ? ri.Value.bid : maxVol;
+					maxVol = ri.Value.ask > maxVol ? ri.Value.ask : maxVol;
+				}
+				
+				mw = getTextWidth(chartScale, dynFontSize, maxVol.ToString());
+				
+				x1 = chartControl.GetXByBarIndex(ChartBars, Profiles[i].lst) + chartControl.Properties.BarDistance;
+				wd = mw + 12f;
+				x2 = x1 + wd;
+				
+				foreach(KeyValuePair<double, RowItem> ri in Profiles[i].rowItems)
+				{
+					if(ri.Key < rngMin || ri.Key > rngMax) { continue; }
+					
+					y1 = ((chartScale.GetYByValue(ri.Key) + chartScale.GetYByValue(ri.Key + TickSize)) / 2);
+					y2 = ((chartScale.GetYByValue(ri.Key) + chartScale.GetYByValue(ri.Key - TickSize)) / 2);
+					
+					ht = Math.Abs(y2 - y1);
+					
+					// bid
+					
+					rect.X      = (float)x1;
+					rect.Y      = (float)y1;
+					rect.Width  = (float)wd;
+					rect.Height = (float)ht;
+					
+					bckBrush.Opacity = 1.0f;
+					
+					RenderTarget.DrawRectangle(rect, bckBrush);
+					RenderTarget.FillRectangle(rect, bckBrush);
+					
+					if(pix >= 12f)
+					{
+						rect.Width  -= 1f;
+						rect.Height -= 1f;
+					}
+					
+					dnsBrush.Opacity = (ri.Key == Profiles[i].poc) ? maxOpacity + 0.2f : (float)Math.Round((maxOpacity / maxVol) * ri.Value.bid, 5);
+					RenderTarget.FillRectangle(rect, dnsBrush);
+					
+					tfDynNorm.TextAlignment = SharpDX.DirectWrite.TextAlignment.Trailing;
+					tfDynBold.TextAlignment = SharpDX.DirectWrite.TextAlignment.Trailing;
+					
+					tl = (ri.Key == Profiles[i].poc) ? new SharpDX.DirectWrite.TextLayout(Core.Globals.DirectWriteFactory, ri.Value.bid.ToString(), tfDynBold, rect.Width - 6f, rect.Height) : new SharpDX.DirectWrite.TextLayout(Core.Globals.DirectWriteFactory, ri.Value.bid.ToString(), tfDynNorm, rect.Width - 6f, rect.Height);
+					
+					tl.ParagraphAlignment = SharpDX.DirectWrite.ParagraphAlignment.Center;
+					
+					vect.X = rect.X;
+					vect.Y = rect.Y;
+					
+					RenderTarget.DrawTextLayout(vect, tl, txtBrush);
+					
+					tl.Dispose();
+					
+					// ask
+					
+					rect.X      = (float)x2;
+					rect.Y      = (float)y1;
+					rect.Width  = (float)wd;
+					rect.Height = (float)ht;
+					
+					bckBrush.Opacity = 1.0f;
+					
+					RenderTarget.DrawRectangle(rect, bckBrush);
+					RenderTarget.FillRectangle(rect, bckBrush);
+					
+					if(pix >= 12f)
+					{
+						rect.Width  -= 1f;
+						rect.Height -= 1f;
+					}
+					
+					upsBrush.Opacity = (ri.Key == Profiles[i].poc) ? maxOpacity + 0.2f : (float)Math.Round((maxOpacity / maxVol) * ri.Value.ask, 5);
+					RenderTarget.FillRectangle(rect, upsBrush);
+					
+					tfDynNorm.TextAlignment = SharpDX.DirectWrite.TextAlignment.Leading;
+					tfDynBold.TextAlignment = SharpDX.DirectWrite.TextAlignment.Leading;
+					
+					tl = (ri.Key == Profiles[i].poc) ? new SharpDX.DirectWrite.TextLayout(Core.Globals.DirectWriteFactory, ri.Value.ask.ToString(), tfDynBold, rect.Width, rect.Height) : new SharpDX.DirectWrite.TextLayout(Core.Globals.DirectWriteFactory, ri.Value.ask.ToString(), tfDynNorm, rect.Width, rect.Height);
+					
+					tl.ParagraphAlignment = SharpDX.DirectWrite.ParagraphAlignment.Center;
+					
+					vect.X = rect.X + 6f;
+					vect.Y = rect.Y;
+					
+					RenderTarget.DrawTextLayout(vect, tl, txtBrush);
+					
+					tl.Dispose();
+				}
+				
+				#endregion
+				
+				#region close
+				
+				if(drawClose)
+				{
+					double clsPrc = Bars.GetClose(Bars.Count - 1);
+					
+					foreach(KeyValuePair<double, RowItem> ri in Profiles[i].rowItems)
+					{
+						if(ri.Key < rngMin || ri.Key > rngMax) { continue; }
+						
+						y1 = ((chartScale.GetYByValue(ri.Key) + chartScale.GetYByValue(ri.Key + TickSize)) / 2);
+						y2 = ((chartScale.GetYByValue(ri.Key) + chartScale.GetYByValue(ri.Key - TickSize)) / 2);
+							
+						ht = Math.Abs(y2 - y1);
+						
+						if(ri.Key == clsPrc && clsPrc == GetCurrentBid())
+						{
+							rect.X      = (float)x1;
+							rect.Y      = (float)y1;
+							rect.Width  = (float)wd;
+							rect.Height = (float)ht;
+							
+							RenderTarget.DrawRectangle(rect, Plots[1].BrushDX);
+						}
+						
+						if(ri.Key == clsPrc && clsPrc == GetCurrentAsk())
+						{
+							rect.X      = (float)x2;
+							rect.Y      = (float)y1;
+							rect.Width  = (float)wd;
+							rect.Height = (float)ht;
+							
+							RenderTarget.DrawRectangle(rect, Plots[1].BrushDX);
+						}
+					}
+				}
+				
+				#endregion
+				
+				// ---
+				
+				chartProps = null;
+				
+				sfDynNorm = null;
+				sfDynBold = null;
+				tfDynNorm.Dispose();
+				tfDynBold.Dispose();
+				
+				bckBrush.Dispose();
+				upsBrush.Dispose();
+				dnsBrush.Dispose();
+				txtBrush.Dispose();
+				
+				RenderTarget.AntialiasMode = oldAntialiasMode;
+			}
+			catch(Exception exception)
+			{
+				if(logErrors)
+				{
+					NinjaTrader.Code.Output.Process(exception.ToString(), PrintTo.OutputTab1);
+				}
+			}
+		}
+		
+		#endregion
+		
 		#region Text Utilities
 		
 		/// getTextSze
@@ -1064,7 +1198,7 @@ namespace NinjaTrader.NinjaScript.Indicators.Infinity
 			tf.Dispose();
 			tl.Dispose();
 			
-			return textWidth;
+			return (float)Math.Ceiling(textWidth);
 		}
 		
 		#endregion
@@ -1144,34 +1278,34 @@ namespace NinjaTrader.NinjaScript.Indicators.Infinity
         { get; set; }
 		
 		[NinjaScriptProperty]
-		[Display(Name = "Display Type", GroupName = "Swing Profile", Order = 1)]
+		[Display(Name = "Display Type", GroupName = "Swing Profile", Order = 0)]
 		public SwingProfileDisplayType displayType
 		{ get; set; }
 		
 		[NinjaScriptProperty]
-        [Display(Name = "Extend", GroupName = "Swing Profile", Order = 2)]
-        public bool extend
-        { get; set; }
-		
-		[NinjaScriptProperty]
         [Range(0.1f, 0.8f)]
-        [Display(Name = "Max Opacity", GroupName = "Swing Profile", Order = 3)]
+        [Display(Name = "Max Opacity", GroupName = "Swing Profile", Order = 1)]
         public float maxOpacity
         { get; set; }
 		
 		[NinjaScriptProperty]
-        [Display(Name = "Draw Border", GroupName = "Swing Profile", Order = 4)]
+        [Display(Name = "Draw Border", GroupName = "Swing Profile", Order = 2)]
         public bool drawBorder
         { get; set; }
 		
 		[NinjaScriptProperty]
-        [Display(Name = "Draw Volume", GroupName = "Swing Profile", Order = 5)]
+        [Display(Name = "Draw Volume", GroupName = "Swing Profile", Order = 3)]
         public bool drawVolume
         { get; set; }
 		
 		[NinjaScriptProperty]
-        [Display(Name = "Draw Ladder", GroupName = "Swing Profile", Order = 6)]
+        [Display(Name = "Draw Ladder", GroupName = "Swing Profile", Order = 4)]
         public bool drawLadder
+        { get; set; }
+		
+		[NinjaScriptProperty]
+        [Display(Name = "Draw Delta", GroupName = "Swing Profile", Order = 5)]
+        public bool drawDelta
         { get; set; }
 		
 		[NinjaScriptProperty]
@@ -1240,18 +1374,18 @@ namespace NinjaTrader.NinjaScript.Indicators
 	public partial class Indicator : NinjaTrader.Gui.NinjaScript.IndicatorRenderBase
 	{
 		private Infinity.SwingProfile[] cacheSwingProfile;
-		public Infinity.SwingProfile SwingProfile(int zzSpan, SwingProfileDisplayType displayType, bool extend, float maxOpacity, bool drawBorder, bool drawVolume, bool drawLadder, Brush upSwingColor, Brush dnSwingColor, Brush textColor, bool drawClose, bool extendClose)
+		public Infinity.SwingProfile SwingProfile(int zzSpan, SwingProfileDisplayType displayType, float maxOpacity, bool drawBorder, bool drawVolume, bool drawLadder, bool drawDelta, Brush upSwingColor, Brush dnSwingColor, Brush textColor, bool drawClose, bool extendClose)
 		{
-			return SwingProfile(Input, zzSpan, displayType, extend, maxOpacity, drawBorder, drawVolume, drawLadder, upSwingColor, dnSwingColor, textColor, drawClose, extendClose);
+			return SwingProfile(Input, zzSpan, displayType, maxOpacity, drawBorder, drawVolume, drawLadder, drawDelta, upSwingColor, dnSwingColor, textColor, drawClose, extendClose);
 		}
 
-		public Infinity.SwingProfile SwingProfile(ISeries<double> input, int zzSpan, SwingProfileDisplayType displayType, bool extend, float maxOpacity, bool drawBorder, bool drawVolume, bool drawLadder, Brush upSwingColor, Brush dnSwingColor, Brush textColor, bool drawClose, bool extendClose)
+		public Infinity.SwingProfile SwingProfile(ISeries<double> input, int zzSpan, SwingProfileDisplayType displayType, float maxOpacity, bool drawBorder, bool drawVolume, bool drawLadder, bool drawDelta, Brush upSwingColor, Brush dnSwingColor, Brush textColor, bool drawClose, bool extendClose)
 		{
 			if (cacheSwingProfile != null)
 				for (int idx = 0; idx < cacheSwingProfile.Length; idx++)
-					if (cacheSwingProfile[idx] != null && cacheSwingProfile[idx].zzSpan == zzSpan && cacheSwingProfile[idx].displayType == displayType && cacheSwingProfile[idx].extend == extend && cacheSwingProfile[idx].maxOpacity == maxOpacity && cacheSwingProfile[idx].drawBorder == drawBorder && cacheSwingProfile[idx].drawVolume == drawVolume && cacheSwingProfile[idx].drawLadder == drawLadder && cacheSwingProfile[idx].upSwingColor == upSwingColor && cacheSwingProfile[idx].dnSwingColor == dnSwingColor && cacheSwingProfile[idx].textColor == textColor && cacheSwingProfile[idx].drawClose == drawClose && cacheSwingProfile[idx].extendClose == extendClose && cacheSwingProfile[idx].EqualsInput(input))
+					if (cacheSwingProfile[idx] != null && cacheSwingProfile[idx].zzSpan == zzSpan && cacheSwingProfile[idx].displayType == displayType && cacheSwingProfile[idx].maxOpacity == maxOpacity && cacheSwingProfile[idx].drawBorder == drawBorder && cacheSwingProfile[idx].drawVolume == drawVolume && cacheSwingProfile[idx].drawLadder == drawLadder && cacheSwingProfile[idx].drawDelta == drawDelta && cacheSwingProfile[idx].upSwingColor == upSwingColor && cacheSwingProfile[idx].dnSwingColor == dnSwingColor && cacheSwingProfile[idx].textColor == textColor && cacheSwingProfile[idx].drawClose == drawClose && cacheSwingProfile[idx].extendClose == extendClose && cacheSwingProfile[idx].EqualsInput(input))
 						return cacheSwingProfile[idx];
-			return CacheIndicator<Infinity.SwingProfile>(new Infinity.SwingProfile(){ zzSpan = zzSpan, displayType = displayType, extend = extend, maxOpacity = maxOpacity, drawBorder = drawBorder, drawVolume = drawVolume, drawLadder = drawLadder, upSwingColor = upSwingColor, dnSwingColor = dnSwingColor, textColor = textColor, drawClose = drawClose, extendClose = extendClose }, input, ref cacheSwingProfile);
+			return CacheIndicator<Infinity.SwingProfile>(new Infinity.SwingProfile(){ zzSpan = zzSpan, displayType = displayType, maxOpacity = maxOpacity, drawBorder = drawBorder, drawVolume = drawVolume, drawLadder = drawLadder, drawDelta = drawDelta, upSwingColor = upSwingColor, dnSwingColor = dnSwingColor, textColor = textColor, drawClose = drawClose, extendClose = extendClose }, input, ref cacheSwingProfile);
 		}
 	}
 }
@@ -1260,14 +1394,14 @@ namespace NinjaTrader.NinjaScript.MarketAnalyzerColumns
 {
 	public partial class MarketAnalyzerColumn : MarketAnalyzerColumnBase
 	{
-		public Indicators.Infinity.SwingProfile SwingProfile(int zzSpan, SwingProfileDisplayType displayType, bool extend, float maxOpacity, bool drawBorder, bool drawVolume, bool drawLadder, Brush upSwingColor, Brush dnSwingColor, Brush textColor, bool drawClose, bool extendClose)
+		public Indicators.Infinity.SwingProfile SwingProfile(int zzSpan, SwingProfileDisplayType displayType, float maxOpacity, bool drawBorder, bool drawVolume, bool drawLadder, bool drawDelta, Brush upSwingColor, Brush dnSwingColor, Brush textColor, bool drawClose, bool extendClose)
 		{
-			return indicator.SwingProfile(Input, zzSpan, displayType, extend, maxOpacity, drawBorder, drawVolume, drawLadder, upSwingColor, dnSwingColor, textColor, drawClose, extendClose);
+			return indicator.SwingProfile(Input, zzSpan, displayType, maxOpacity, drawBorder, drawVolume, drawLadder, drawDelta, upSwingColor, dnSwingColor, textColor, drawClose, extendClose);
 		}
 
-		public Indicators.Infinity.SwingProfile SwingProfile(ISeries<double> input , int zzSpan, SwingProfileDisplayType displayType, bool extend, float maxOpacity, bool drawBorder, bool drawVolume, bool drawLadder, Brush upSwingColor, Brush dnSwingColor, Brush textColor, bool drawClose, bool extendClose)
+		public Indicators.Infinity.SwingProfile SwingProfile(ISeries<double> input , int zzSpan, SwingProfileDisplayType displayType, float maxOpacity, bool drawBorder, bool drawVolume, bool drawLadder, bool drawDelta, Brush upSwingColor, Brush dnSwingColor, Brush textColor, bool drawClose, bool extendClose)
 		{
-			return indicator.SwingProfile(input, zzSpan, displayType, extend, maxOpacity, drawBorder, drawVolume, drawLadder, upSwingColor, dnSwingColor, textColor, drawClose, extendClose);
+			return indicator.SwingProfile(input, zzSpan, displayType, maxOpacity, drawBorder, drawVolume, drawLadder, drawDelta, upSwingColor, dnSwingColor, textColor, drawClose, extendClose);
 		}
 	}
 }
@@ -1276,14 +1410,14 @@ namespace NinjaTrader.NinjaScript.Strategies
 {
 	public partial class Strategy : NinjaTrader.Gui.NinjaScript.StrategyRenderBase
 	{
-		public Indicators.Infinity.SwingProfile SwingProfile(int zzSpan, SwingProfileDisplayType displayType, bool extend, float maxOpacity, bool drawBorder, bool drawVolume, bool drawLadder, Brush upSwingColor, Brush dnSwingColor, Brush textColor, bool drawClose, bool extendClose)
+		public Indicators.Infinity.SwingProfile SwingProfile(int zzSpan, SwingProfileDisplayType displayType, float maxOpacity, bool drawBorder, bool drawVolume, bool drawLadder, bool drawDelta, Brush upSwingColor, Brush dnSwingColor, Brush textColor, bool drawClose, bool extendClose)
 		{
-			return indicator.SwingProfile(Input, zzSpan, displayType, extend, maxOpacity, drawBorder, drawVolume, drawLadder, upSwingColor, dnSwingColor, textColor, drawClose, extendClose);
+			return indicator.SwingProfile(Input, zzSpan, displayType, maxOpacity, drawBorder, drawVolume, drawLadder, drawDelta, upSwingColor, dnSwingColor, textColor, drawClose, extendClose);
 		}
 
-		public Indicators.Infinity.SwingProfile SwingProfile(ISeries<double> input , int zzSpan, SwingProfileDisplayType displayType, bool extend, float maxOpacity, bool drawBorder, bool drawVolume, bool drawLadder, Brush upSwingColor, Brush dnSwingColor, Brush textColor, bool drawClose, bool extendClose)
+		public Indicators.Infinity.SwingProfile SwingProfile(ISeries<double> input , int zzSpan, SwingProfileDisplayType displayType, float maxOpacity, bool drawBorder, bool drawVolume, bool drawLadder, bool drawDelta, Brush upSwingColor, Brush dnSwingColor, Brush textColor, bool drawClose, bool extendClose)
 		{
-			return indicator.SwingProfile(input, zzSpan, displayType, extend, maxOpacity, drawBorder, drawVolume, drawLadder, upSwingColor, dnSwingColor, textColor, drawClose, extendClose);
+			return indicator.SwingProfile(input, zzSpan, displayType, maxOpacity, drawBorder, drawVolume, drawLadder, drawDelta, upSwingColor, dnSwingColor, textColor, drawClose, extendClose);
 		}
 	}
 }
